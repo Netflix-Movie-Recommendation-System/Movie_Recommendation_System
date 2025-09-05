@@ -4,6 +4,9 @@ This project implements a **content-based movie recommendation system** using **
 
 The application is deployed using **Streamlit** for an interactive web-based interface.  
 
+## 🎥 Demo Video
+
+<video src="assets/Demo.mp4" width="700" controls></video>
 ---
 
 ## 🚀 Features  
