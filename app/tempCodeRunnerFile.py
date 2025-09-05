@@ -1,0 +1,1 @@
+st.set_page_config(page_title="Netflix Recommender", page_icon="🍿", layout="wide")
