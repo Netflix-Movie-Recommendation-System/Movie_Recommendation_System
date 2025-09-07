@@ -7,7 +7,7 @@ The application is deployed using **Streamlit** for an interactive web-based int
 [![Demo Preview](assets/demo.gif)](https://https://github.com/Netflix-Movie-Recommendation-System/Movie_Recommendation_System/raw/main/assets/Demo.gif)
 ---
 ## 🚀 Demo
-👉 [Click here to try the app](https://your-app.streamlit.app)
+👉 [Click here to try the app](https://netflix-movies-recommendation-system.streamlit.app/)
 
 
 ## 🚀 Features  
