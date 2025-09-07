@@ -4,7 +4,7 @@ This project implements a **content-based movie recommendation system** using **
 
 The application is deployed using **Streamlit** for an interactive web-based interface.  
 
-[![Demo Preview](assets/demo.gif)](https://github.com/Omar75566/Movie_Recommendation_System/raw/main/assets/Demo.mp4)
+[![Demo Preview](assets/demo.gif)](https://https://github.com/Netflix-Movie-Recommendation-System/Movie_Recommendation_System/raw/main/assets/Demo.gif)
 ---
 
 ## 🚀 Features  
