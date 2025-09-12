@@ -19,22 +19,10 @@ def load_model():
     return loaded_model
 
 
-# Load data (for getting images)
-@st.cache_resource
-def load_data():
-    old_data = pd.read_csv(
-        "data/Netflix Dataset Latest 2021.csv",
-        encoding="latin1",
-    )
-    images = old_data["Image"]
-    return images
-
-
 # Initialize the recommendation system with caching
 @st.cache_resource
 def initialize_recommender():
     loaded_model = load_model()
-    images = load_data()
 
     df = loaded_model["df"]
     tfidf = loaded_model["tfidf_vectorizer"]
@@ -48,7 +36,7 @@ def initialize_recommender():
         df, tfidf, scaler, genre_encoder, language_encoder, pca, k_model
     )
     recommender.preprocess()
-    return recommender, images, df
+    return recommender, df
 
 
 class KMEANS_RECOMMENDATION_SYSTEM:
@@ -266,7 +254,7 @@ st.markdown("Discover movies similar to your favorites or find popular titles by
 
 # Initialize with a spinner
 with st.spinner("Loading recommendation system..."):
-    recommender, images, df = initialize_recommender()
+    recommender, df = initialize_recommender()
 
 # Sidebar for navigation
 st.sidebar.title("Navigation")
@@ -315,7 +303,6 @@ if option == "Similar Movies":
             for idx, (_, row) in enumerate(recommendations.iterrows()):
                 with cols[idx % 2]:
                     with st.container():
-                        image = images.loc[df["Title"] == row["Title"]].iloc[0]
                         # st.subheader(row["Title"])
                         st.markdown(
                             f"<h3 style='color:red;'>{row['Title']}</h3>",
@@ -329,7 +316,6 @@ if option == "Similar Movies":
                         st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
                         with st.expander("📝 Summary"):
                             st.write(row["Summary"])
-                        st.image(image, caption=row["Title"], width=300)
                         st.markdown("---")
         else:
             st.warning("No similar movies found or movie not in database.")
@@ -365,7 +351,6 @@ elif option == "Popular Movies":
             for idx, (_, row) in enumerate(popular_movies.iterrows()):
                 with cols[idx % 2]:
                     with st.container():
-                        image = images.loc[df["Title"] == row["Title"]].iloc[0]
                         # st.subheader(row["Title"])
                         st.markdown(
                             f"<h3 style='color:red;'>{row['Title']}</h3>",
@@ -379,7 +364,6 @@ elif option == "Popular Movies":
                         st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
                         with st.expander("📝 Summary"):
                             st.write(row["Summary"])
-                        st.image(image, caption=row["Title"], width=300)
                         st.markdown("---")
         else:
             st.warning("No movies found with the selected criteria.")
@@ -409,7 +393,6 @@ elif option == "Search Movies":
             for idx, (_, row) in enumerate(results.iterrows()):
                 with cols[idx % 2]:
                     with st.container():
-                        image = images.loc[df["Title"] == row["Title"]].iloc[0]
                         # st.subheader(row["Title"])
                         st.markdown(
                             f"<h3 style='color:red;'>{row['Title']}</h3>",
@@ -422,7 +405,6 @@ elif option == "Search Movies":
                         st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
                         with st.expander("📝 Summary"):
                             st.write(row["Summary"])
-                        st.image(image, caption=row["Title"], width=300)
                         st.markdown("---")
         else:
             st.warning("No results found.")
