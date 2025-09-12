@@ -1,281 +1,435 @@
-import streamlit as st
-import pandas as pd
-import random
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.feature_extraction.text import TfidfVectorizer
-from rapidfuzz import process
 import pickle
+import warnings
+import pandas as pd
+import streamlit as st
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy.sparse import hstack, csr_matrix
 
-st.set_page_config(page_title="Netflix Recommender", page_icon="🍿", layout="wide")
+warnings.filterwarnings("ignore")
+
+# conda activate project
+# streamlit run app/app.py
 
 
-# --------------------
-# Load Data
-# --------------------
-@st.cache_data
+# Load the pre-trained model with caching
+@st.cache_resource
+def load_model():
+    with open("models/kmeans_scaler.pkl", "rb") as f:
+        loaded_model = pickle.load(f)
+    return loaded_model
+
+
+# Load data (for getting images)
+@st.cache_resource
 def load_data():
-    df = pd.read_csv("./data/Netflix Dataset Latest 2021.csv", encoding="latin1")
-
-    drop_cols = [
-        "Netflix Link",
-        "IMDb Link",
-        "Image",
-        "Poster",
-        "TMDb Trailer",
-        "Trailer Site",
-        "Awards Nominated For",
-    ]
-    df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors="ignore")
-
-    # df = df.dropna(subset=['Title'])
-    return df
+    old_data = pd.read_csv(
+        "data/Netflix Dataset Latest 2021.csv",
+        encoding="latin1",
+    )
+    images = old_data["Image"]
+    return images
 
 
-df = load_data()
+# Initialize the recommendation system with caching
+@st.cache_resource
+def initialize_recommender():
+    loaded_model = load_model()
+    images = load_data()
 
-# --------------------
-# Try loading KMeans model
-# --------------------
+    df = loaded_model["df"]
+    tfidf = loaded_model["tfidf_vectorizer"]
+    scaler = loaded_model["Scaler"]
+    genre_encoder = loaded_model["Genre_encoder"]
+    language_encoder = loaded_model["Language_encoder"]
+    pca = loaded_model["PCA"]
+    k_model = loaded_model["model"]
 
-# def kmeans_scaler(movie_title, df, model, n=10):
-#     """Dummy placeholder for compatibility with saved pickle model"""
-#     return []
-
-
-# try:
-with open("./models/kmeans_scaler.pkl", "rb") as f:
-    model = pickle.load(f)
-
-# df = model["df"],
-k_model = model["model"]
-tfidf_vectorizer = model["tfidf_vectorizer"]
-Scaler = model["Scaler"]
-Genre_encoder = ["Genre_encoder"]
-Language_encoder = model["Language_encoder"]
-pca = model["PCA"]
-st.success("✅ KMeans model loaded successfully.")
-# except Exception as e:
-#     model = None
-#     st.warning(f"⚠️ Could not load KMeans model. Using TF-IDF only. Error: {e}")
+    recommender = KMEANS_RECOMMENDATION_SYSTEM(
+        df, tfidf, scaler, genre_encoder, language_encoder, pca, k_model
+    )
+    recommender.preprocess()
+    return recommender, images, df
 
 
-# --------------------
-# Custom Styling
-# --------------------
-st.markdown(
-    """
-    <style>
-    .movie-card {
-        padding: 20px;
-        border-radius: 12px;
-        background-color: #1F1F1F;
-        margin-bottom: 20px;
-        transition: all 0.3s ease-in-out;
-        border: 1px solid #333;
-    }
-    .movie-card:hover {
-        transform: scale(1.03);
-        background-color: #2A2A2A;
-        border: 1px solid #E50914;
-    }
-    .movie-title {
-        font-size: 22px;
-        font-weight: bold;
-        color: #E50914;
-    }
-    .movie-meta {
-        font-size: 14px;
-        color: #BBBBBB;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+class KMEANS_RECOMMENDATION_SYSTEM:
+    def __init__(
+        self, df, tfidf, scaler, genre_encoder, language_encoder, pca, k_model
+    ):
+        self.df = df
+        self.tfidf = tfidf
+        self.scaler = scaler
+        self.genre_encoder = genre_encoder
+        self.language_encoder = language_encoder
+        self.pca = pca
+        self.k_model = k_model
 
-st.title("🍿 Netflix Movie Recommendation System")
+    def preprocess(self):
+        text_features = list(self.df["text_features"])
 
-# --------------------
-# Pick correct text column for TF-IDF
-# --------------------
-text_features = []
+        tfidf_matrix = self.tfidf.transform(text_features)
 
-# Combines multiple text-based columns into single strings
-for idx, row in df.iterrows():
-    combined_text = f"{row['Summary']} {row['Tags']} {row['Director']} {row['Actors']}"
-    text_features.append(combined_text)
+        # 2. One-hot encode genres
+        genre_matrix = self.genre_encoder.transform(self.df["Genre_List"])
 
-if text_features:
+        # 3. One-hot encode languages
+        language_matrix = self.language_encoder.transform(self.df["Language_List"])
 
-    @st.cache_resource
-    def build_tfidf_model(text_features):
-        tfidf_matrix = tfidf_vectorizer.transform(text_features)
-        return tfidf_vectorizer, tfidf_matrix
-
-    tfidf, tfidf_matrix = build_tfidf_model(text_features)
-else:
-    tfidf, tfidf_matrix = None, None
-
-
-# --------------------
-# Clean Dropdown Options
-# --------------------
-def split_unique_values(series):
-    values = set()
-    for entry in series.dropna():
-        for v in str(entry).split(","):
-            values.add(v.strip())
-    return sorted(values)
-
-
-# Detect correct column names dynamically
-genre_col = next((c for c in df.columns if "genre" in c.lower()), None)
-rating_col = next((c for c in df.columns if "rating" in c.lower()), None)
-language_col = next((c for c in df.columns if "language" in c.lower()), None)
-
-genre_list = split_unique_values(df[genre_col]) if genre_col else []
-rating_list = split_unique_values(df[rating_col]) if rating_col else []
-language_list = split_unique_values(df[language_col]) if language_col else []
-
-
-# --------------------
-# Fuzzy Search
-# --------------------
-def fuzzy_movie_search(query, choices, limit=5):
-    results = process.extract(query, choices, limit=limit)
-    return [r[0] for r in results]
-
-
-# --------------------
-# Filters
-# --------------------
-# --------------------
-# Filters
-# --------------------
-# 🎥 Movie title search (searchable dropdown, same as "Did you mean")
-selected_movie = st.selectbox(
-    "🎥 Select a Movie:",
-    options=sorted(df["Title"].dropna().unique()),
-    help="Start typing to quickly find a movie",
-)
-
-# Other filters
-selected_genres = st.multiselect("🎭 Genres (optional):", genre_list)
-selected_ratings = st.multiselect("⭐ Ratings (optional):", rating_list)
-selected_languages = st.multiselect("🗣️ Languages (optional):", language_list)
-
-# 🔥 Number of recommendations
-top_n = st.slider("📊 Number of recommendations:", min_value=1, max_value=20, value=5)
-
-# --------------------
-# Watchlist (Session State)
-# --------------------
-if "watchlist" not in st.session_state:
-    st.session_state.watchlist = []
-
-
-# --------------------
-# Recommendation Logic
-# --------------------
-def get_movie_recommendations(selected_title, top_n=10):
-    matches = df[df["Title"].str.lower() == selected_title.lower()]
-
-    if matches.empty:
-        return pd.DataFrame(), None
-
-    selected_idx = matches.index[0]
-
-    if tfidf_matrix is not None:
-        cosine_similarities = cosine_similarity(
-            tfidf_matrix[selected_idx], tfidf_matrix
-        ).flatten()
-        similar_indices = cosine_similarities.argsort()[::-1][1 : top_n + 1]
-        recommendations = df.iloc[similar_indices].copy()
-    else:
-        recommendations = pd.DataFrame()
-
-    if selected_genres and genre_col:
-        recommendations = recommendations[
-            recommendations[genre_col].apply(
-                lambda x: any(g in str(x).split(",") for g in selected_genres)
-            )
+        numerical_features = [
+            "Composite_Score",
+            "Log_IMDb_Votes",
         ]
-    if selected_ratings and rating_col:
-        recommendations = recommendations[
-            recommendations[rating_col].apply(
-                lambda x: any(r in str(x).split(",") for r in selected_ratings)
-            )
-        ]
-    if selected_languages and language_col:
-        recommendations = recommendations[
-            recommendations[language_col].apply(
-                lambda x: any(l in str(x).split(",") for l in selected_languages)
-            )
-        ]
+        numerical_matrix = self.scaler.transform(self.df[numerical_features].fillna(0))
 
-    return recommendations.head(top_n), df.loc[selected_idx]
-
-
-# --------------------
-# Show Results
-# --------------------
-if st.button("🔍 Recommend") and selected_movie:
-    with st.spinner("🍿 Finding the best recommendations for you..."):
-        recs, selected_movie_row = get_movie_recommendations(
-            selected_movie, top_n=top_n
+        feature_matrix = hstack(  # shape (n_items, n_features)
+            [
+                tfidf_matrix,
+                csr_matrix(genre_matrix),
+                csr_matrix(language_matrix),
+                csr_matrix(numerical_matrix),
+            ]
         )
 
-    if selected_movie_row is None:
-        st.warning("⚠️ No movie found with that title.")
-    else:
-        st.subheader(f"🎥 Selected Movie: {selected_movie_row['Title']}")
-        if genre_col:
-            st.write(f"🎭 **Genre:** {selected_movie_row.get(genre_col, 'N/A')}")
-        if rating_col:
-            st.write(f"⭐ **Rating:** {selected_movie_row.get(rating_col, 'N/A')}")
-        if language_col:
-            st.write(f"🗣️ **Language:** {selected_movie_row.get(language_col, 'N/A')}")
-        if text_features and any(
-            col in selected_movie_row.index for col in text_features
-        ):
-            st.write(f"📝 **{text_features}:** {selected_movie_row[text_features]}")
+        # Apply PCA to reduce dimensions
+        self.feature_matrix_reduced = self.pca.transform(
+            feature_matrix.toarray()
+        )  # If feature_matrix is sparse, convert to dense
 
-        if recs.empty:
-            st.warning("⚠️ No similar movies found with given filters.")
-        else:
-            st.success("✅ Recommendations:")
+        self.df["cluster"] = self.k_model.labels_
 
-            cols = st.columns(2)
-            for i, (_, row) in enumerate(recs.iterrows(), start=1):
-                with cols[(i - 1) % 2]:
-                    st.markdown(
-                        f"""
-                        <div class="movie-card">
-                            <div class="movie-title">{row['Title']}</div>
-                            <div class="movie-meta">
-                                🎭 {row.get(genre_col, 'N/A')}<br>
-                                ⭐ {row.get(rating_col, 'N/A')}<br>
-                                🗣️ {row.get(language_col, 'N/A')}
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
+    def get_similar_movies_recommendations(self, title, num_recommendations=12):
+        """
+        Get top movie recommendations similar to the target title using KMeans clusters and cosine similarity.
+
+        Parameters:
+        - title: str, the title of the movie to find recommendations for
+        - df: DataFrame, the dataset with movie details and cluster labels
+        - feature_matrix: sparse/dense matrix, the feature matrix used for clustering (e.g., TF-IDF + one-hot + numerical)
+        - num_recommendations: int, number of recommendations to return
+
+        Returns:
+        - DataFrame with top recommended movies
+        """
+        # Check if the title exists in the dataset
+        if title not in self.df["Title"].values:
+            raise ValueError(f"Title '{title}' not found in the dataset.")
+
+        # Get the cluster and feature vector of the target movie
+        target_movie = self.df[self.df["Title"] == title]
+        movie_cluster = target_movie["cluster"].iloc[
+            0
+        ]  # Extract the cluster of the target movie.
+        target_idx = target_movie.index[0]  # Get the index of the target movie
+        target_features = self.feature_matrix_reduced[target_idx].reshape(
+            1, -1
+        )  # Reshape for cosine similarity (converts into a 2D array)
+
+        # Get all movies in the same cluster
+        cluster_movies = self.df[self.df["cluster"] == movie_cluster]
+
+        # Get the indices of movies in the same cluster, excluding the target movie.
+        cluster_indices = cluster_movies[cluster_movies["Title"] != title].index
+
+        # Extract the feature vectors for all movies in the same cluster
+        cluster_features = self.feature_matrix_reduced[cluster_indices]
+
+        # Calculate cosine similarity between the target movie features and other movies features
+        similarities = cosine_similarity(target_features, cluster_features)[0]
+
+        # Create a DataFrame with similarities
+        recommendations = cluster_movies.loc[cluster_indices].copy()
+        recommendations["Similarity"] = similarities
+
+        # Sort by similarity (descending) and select top recommendations
+        recommendations = recommendations.sort_values(by="Similarity", ascending=False)
+
+        # Return top recommendations
+        return recommendations[
+            [
+                "Title",
+                "Genre",
+                "Series or Movie",
+                "Director",
+                "Composite_Score",
+                "Actors",
+                "Summary",
+                "Similarity",
+                "IMDb Score",
+                "cluster",
+            ]
+        ].head(num_recommendations)
+
+    def get_popular_recommendations(self, genre=None, content_type=None, top_n=10):
+        """Get popular movies based on composite scores"""
+        filtered_df = self.df.copy()
+
+        # Checks if a genre filter is provided and it's not "All"
+        if genre and genre != "All":
+            filtered_df = filtered_df[
+                filtered_df["Genre"].str.contains(genre, case=False, na=False)
+            ]
+
+        # Checks if a content type filter is provided and it's not "All"
+        if content_type and content_type != "All":
+            filtered_df = filtered_df[filtered_df["Series or Movie"] == content_type]
+
+        # returns the rows with the largest values in "IMDb Score"
+        popular_movies = filtered_df.nlargest(top_n, "IMDb Score")[
+            [
+                "Title",
+                "Genre",
+                "Director",
+                "Actors",
+                "Series or Movie",
+                "Composite_Score",
+                "IMDb Score",
+                "Summary",
+            ]
+        ]
+
+        return pd.DataFrame(popular_movies)
+
+        # Searches for movies by looking for a query string in specified columns
+
+    def search_movies(self, query, search_in=None):
+        """
+        Search for movies based on different criteria
+        ("Title", "Genre", "Director", "Actors")
+        """
+        results = pd.DataFrame()
+
+        for column in search_in:
+            if column in self.df.columns:
+                matches = self.df[
+                    self.df[column].str.contains(
+                        query,
+                        case=False,  # Case-insensitive search
+                        na=False,  # Ignore NaN/empty values
                     )
+                ]
+                results = pd.concat([results, matches])
 
-                    if st.button(f"➕ Add to Watchlist", key=f"watch_{i}"):
-                        st.session_state.watchlist.append(row["Title"])
-                        st.success(f"✅ {row['Title']} added to watchlist!")
+        # Removes duplicate rows that have the same index (same movie appearing multiple times)
+        if not results.empty:
+            results = results.loc[~results.index.duplicated(keep="first")]
 
-# --------------------
-# Surprise Me Feature
-# --------------------
-if st.button("🎲 Surprise Me"):
-    random_movie = random.choice(df["Title"].dropna().unique())
-    st.info(f"Your random pick: **{random_movie}**")
+        results = results.nlargest(12, "IMDb Score")
+        return results[
+            [
+                "Title",
+                "Genre",
+                "Director",
+                "Actors",
+                "IMDb Score",
+                "Series or Movie",
+                "Summary",
+            ]
+        ]
 
-# --------------------
-# Trending Section
-# --------------------
-st.subheader("🔥 Trending Now")
-trending = df["Title"].value_counts().head(5).index.tolist()
-for t in trending:
-    st.write(f"🎬 {t}")
+    def get_unique_genres(self):
+        """Get list of unique genres for dropdown"""
+        all_genres = []
+        # add all elements from the current genre_list to the all_genres list
+        # [extend() is used instead of append() because we want to add multiple items from a list, not add the list itself]
+        for genre_list in self.df["Genre_List"]:
+            all_genres.extend(genre_list)
+        return sorted(list(set(all_genres)))  # Creates a set to remove duplicate genres
+
+
+# Cache expensive operations
+@st.cache_data
+def get_similar_movies_cached(_recommender, title, num_recommendations=12):
+    return _recommender.get_similar_movies_recommendations(title, num_recommendations)
+
+
+@st.cache_data
+def get_popular_movies_cached(_recommender, genre, content_type, top_n):
+    return _recommender.get_popular_recommendations(genre, content_type, top_n)
+
+
+@st.cache_data
+def search_movies_cached(_recommender, query, search_in):
+    return _recommender.search_movies(query, search_in=search_in)
+
+
+@st.cache_data
+def get_unique_genres_cached(_recommender):
+    return _recommender.get_unique_genres()
+
+
+# Streamlit UI
+st.set_page_config(
+    page_title="Movie Recommendation System", page_icon="🎬", layout="wide"
+)
+
+st.title("🎬 Movie Recommendation System")
+st.markdown("Discover movies similar to your favorites or find popular titles by genre")
+
+# Initialize with a spinner
+with st.spinner("Loading recommendation system..."):
+    recommender, images, df = initialize_recommender()
+
+# Sidebar for navigation
+st.sidebar.title("Navigation")
+option = st.sidebar.radio(
+    "Choose an option:", ["Similar Movies", "Popular Movies", "Search Movies"]
+)
+
+# Similar Movies Section
+if option == "Similar Movies":
+    st.header("Find Similar Movies")
+
+    movie_titles = sorted(recommender.df["Title"].unique())
+    selected_movie = st.selectbox("Select a movie:", movie_titles)
+
+    num_recommendations = st.slider("Number of recommendations:", 5, 20, 12)
+
+    if st.button("Find Similar Movies"):
+        with st.spinner("Finding similar movies..."):
+            # Show details of the selected movie first
+            selected_movie_row = recommender.df[
+                recommender.df["Title"] == selected_movie
+            ].iloc[0]
+
+            # st.subheader(f"🎥 Selected Movie: {selected_movie_row['Title']}")
+            st.markdown(
+                f"<h3 style='color:red;'>🎥 Selected Movie: {selected_movie_row['Title']}</h3>",
+                unsafe_allow_html=True,
+            )
+            st.write(f"**🎬 Genre:** {selected_movie_row['Genre']}")
+            st.write(f"**🎥 Director:** {selected_movie_row['Director']}")
+            st.write(f"**⭐ Actors:** {selected_movie_row['Actors']}")
+            st.write(f"**📺 Type:** {selected_movie_row['Series or Movie']}")
+            st.write(f"**🍿 IMDb Score:** {selected_movie_row['IMDb Score']}")
+            with st.expander("📝 Summary"):
+                st.write(selected_movie_row["Summary"])
+            st.markdown("---")
+            recommendations = get_similar_movies_cached(
+                recommender, selected_movie, num_recommendations
+            )
+
+        if recommendations is not None and not recommendations.empty:
+            st.success(f"Movies similar to '{selected_movie}':")
+
+            # Display as cards in columns
+            cols = st.columns(2)
+            for idx, (_, row) in enumerate(recommendations.iterrows()):
+                with cols[idx % 2]:
+                    with st.container():
+                        image = images.loc[df["Title"] == row["Title"]].iloc[0]
+                        # st.subheader(row["Title"])
+                        st.markdown(
+                            f"<h3 style='color:red;'>{row['Title']}</h3>",
+                            unsafe_allow_html=True,
+                        )
+                        st.write(f"🎬 **Genre:** {row['Genre']}")
+                        st.write(f"🎥 **Director:** {row['Director']}")
+                        st.write(f"⭐ **Actors:** {row['Actors']}")
+                        st.write(f"📺 **Type:** {row['Series or Movie']}")
+                        # st.write(f"**Score:** {row['Composite_Score']:.1f}")
+                        st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
+                        with st.expander("📝 Summary"):
+                            st.write(row["Summary"])
+                        st.image(image, caption=row["Title"], width=300)
+                        st.markdown("---")
+        else:
+            st.warning("No similar movies found or movie not in database.")
+
+# Popular Movies Section
+elif option == "Popular Movies":
+    st.header("Popular Movies by Genre")
+
+    genres = ["All"] + get_unique_genres_cached(recommender)
+    selected_genre = st.selectbox("Select genre:", genres)
+
+    content_types = ["All", "Movie", "Series"]
+    selected_type = st.selectbox("Select content type:", content_types)
+
+    num_recommendations = st.slider("Number of recommendations:", 5, 20, 10)
+
+    if st.button("Get Popular Movies"):
+        with st.spinner("Finding popular movies..."):
+            popular_movies = get_popular_movies_cached(
+                recommender,
+                selected_genre if selected_genre != "All" else None,
+                selected_type if selected_type != "All" else None,
+                num_recommendations,
+            )
+
+        if not popular_movies.empty:
+            st.success(
+                f"Popular {selected_genre if selected_genre != 'All' else ''} {selected_type if selected_type != 'All' else 'content'}:"
+            )
+
+            # Display as cards in columns
+            cols = st.columns(2)
+            for idx, (_, row) in enumerate(popular_movies.iterrows()):
+                with cols[idx % 2]:
+                    with st.container():
+                        image = images.loc[df["Title"] == row["Title"]].iloc[0]
+                        # st.subheader(row["Title"])
+                        st.markdown(
+                            f"<h3 style='color:red;'>{row['Title']}</h3>",
+                            unsafe_allow_html=True,
+                        )
+                        st.write(f"**🎬 Genre:** {row['Genre']}")
+                        st.write(f"**🎥 Director:** {row['Director']}")
+                        st.write(f"**⭐ Actors:** {row['Actors']}")
+                        st.write(f"**📺 Type:** {row['Series or Movie']}")
+                        # st.write(f"**Score:** {row['Composite_Score']:.1f}")
+                        st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
+                        with st.expander("📝 Summary"):
+                            st.write(row["Summary"])
+                        st.image(image, caption=row["Title"], width=300)
+                        st.markdown("---")
+        else:
+            st.warning("No movies found with the selected criteria.")
+
+# Search Movies Section
+elif option == "Search Movies":
+    st.header("Search Movies")
+
+    search_query = st.text_input("Enter search term:")
+    search_columns = st.multiselect(
+        "Search in:",
+        ["Title", "Genre", "Director", "Actors"],
+        # default=["Title", "Genre"],
+    )
+
+    if st.button("Search") and search_query:
+        with st.spinner("Searching..."):
+            results = search_movies_cached(
+                recommender, search_query, search_in=search_columns
+            )
+
+        if not results.empty:
+            st.success(f"Found {len(results)} results for '{search_query}':")
+
+            # Display as cards in columns
+            cols = st.columns(2)
+            for idx, (_, row) in enumerate(results.iterrows()):
+                with cols[idx % 2]:
+                    with st.container():
+                        image = images.loc[df["Title"] == row["Title"]].iloc[0]
+                        # st.subheader(row["Title"])
+                        st.markdown(
+                            f"<h3 style='color:red;'>{row['Title']}</h3>",
+                            unsafe_allow_html=True,
+                        )
+                        st.write(f"🎬 **Genre:** {row['Genre']}")
+                        st.write(f"🎥 **Director:** {row['Director']}")
+                        st.write(f"⭐ **Actors:** {row['Actors']}")
+                        st.write(f"📺 **Type:** {row['Series or Movie']}")
+                        st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
+                        with st.expander("📝 Summary"):
+                            st.write(row["Summary"])
+                        st.image(image, caption=row["Title"], width=300)
+                        st.markdown("---")
+        else:
+            st.warning("No results found.")
+
+# Footer
+st.sidebar.markdown("---")
+st.sidebar.info(
+    "This recommendation system uses content-based filtering and K-means clustering "
+    "to suggest movies based on their features and similarities."
+)
