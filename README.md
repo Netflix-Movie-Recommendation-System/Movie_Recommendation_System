@@ -12,8 +12,8 @@ The application is deployed using **Streamlit** for an interactive web-based int
 
 ## 🚀 Features  
 - 🎬 Recommend movies similar to a user-selected title.  
-- 🔍 Sidebar controls to choose movies and number of recommendations.  
-- 📌 Personalized Watchlist functionality.  
+- 🔍 Sidebar controls to choose movies and number of recommendations.
+- 🎲 "Surprise Me" feature for random movie suggestions.
 - 🔥 Display of trending movies.  
 - 🎨 Modern and clean UI with hover effects.  
 
