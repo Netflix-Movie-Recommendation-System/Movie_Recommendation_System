@@ -3,14 +3,18 @@
 This project implements a **content-based movie recommendation system** using **K-Means clustering** on the **Netflix Dataset (2021)**. The system clusters movies based on their features (such as genre, language, and view ratings) and recommends similar movies to the one selected by the user.  
 
 The application is deployed using **Streamlit** for an interactive web-based interface.  
+
 ---
 <img width="1919" height="1042" alt="Image" src="https://github.com/user-attachments/assets/6e18290b-31e3-4690-8ebd-5daeaba5edb0" />
+
 ---
 ## 🚀 Demo preview
 👉 [Click to show the Demo](https://drive.google.com/drive/folders/1-jwkq7fsAqdoQ3urpYqSeKDpjFV8lAl1?usp=sharing)
+
 ---
 ## Try our App
 👉 [Click here to try the app](https://netflix-movies-recommendation-system.streamlit.app/)
+
 ---
 
 ## 🚀 Features  
