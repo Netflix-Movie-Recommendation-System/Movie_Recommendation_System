@@ -12,7 +12,7 @@ The application is deployed using **Streamlit** for an interactive web-based int
 👉 [Click here to show the Demo](https://drive.google.com/drive/folders/1-jwkq7fsAqdoQ3urpYqSeKDpjFV8lAl1?usp=sharing)
 
 ---
-## Try our App
+## 🚀 Try our App
 👉 [Click here to try the app](https://recommendationsystem11-app.streamlit.app/)
 
 ---
