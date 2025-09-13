@@ -3,7 +3,5 @@ pandas
 numpy
 scikit-learn
 scipy
-joblib
 pickle
-rapidfuzz
 random
