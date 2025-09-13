@@ -361,6 +361,7 @@ if option == "Similar Movies":
 
         if recommendations is not None and not recommendations.empty:
             st.success(f"Recommendations (similar to {selected_movie}):")
+            recommendations = recommendations.drop_duplicates(subset=['Title', 'Series or Movie'], keep='first')
 
             # Display as cards in columns
             cols = st.columns(2)
@@ -426,6 +427,7 @@ elif option == "Popular Movies":
             st.success(
                 f"Popular {selected_genre if selected_genre != 'All' else ''} {selected_type if selected_type != 'All' else 'content'}:"
             )
+            popular_movies = popular_movies.drop_duplicates(subset=['Title', 'Series or Movie'], keep='first')
 
             # Display as cards in columns
             cols = st.columns(2)
@@ -470,6 +472,8 @@ elif option == "Search Movies":
             results = search_movies_cached(
                 recommender, search_query, search_in=search_columns
             )
+            
+        results = results.drop_duplicates(subset=['Title', 'Series or Movie'], keep='first')
 
         if not results.empty:
             st.success(f"Found {len(results)} results for '{search_query}':")
