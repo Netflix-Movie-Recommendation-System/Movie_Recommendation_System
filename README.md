@@ -4,17 +4,23 @@ This project implements a **content-based movie recommendation system** using **
 
 The application is deployed using **Streamlit** for an interactive web-based interface.  
 
-[![Demo Preview](assets/demo.gif)](https://https://github.com/Netflix-Movie-Recommendation-System/Movie_Recommendation_System/raw/main/assets/Demo.gif)
 ---
-## 🚀 Demo
-👉 [Click here to try the app](https://netflix-movies-recommendation-system.streamlit.app/)
+<img width="1919" height="1042" alt="Image" src="https://github.com/user-attachments/assets/6e18290b-31e3-4690-8ebd-5daeaba5edb0" />
 
+---
+## 🚀 Demo preview
+👉 [Click here to show the Demo](https://drive.google.com/drive/folders/1-jwkq7fsAqdoQ3urpYqSeKDpjFV8lAl1?usp=sharing)
+
+---
+## 🚀 Try our App
+👉 [Click here to try the app](https://recommendationsystem11-app.streamlit.app/)
+
+---
 
 ## 🚀 Features  
 - 🎬 Recommend movies similar to a user-selected title.  
-- 🔍 Sidebar controls to choose movies and number of recommendations.  
-- 🎲 "Surprise Me" feature for random movie suggestions.  
-- 📌 Personalized Watchlist functionality.  
+- 🔍 Sidebar controls to choose movies and number of recommendations.
+- 🎲 "Surprise Me" feature for random movie suggestions.
 - 🔥 Display of trending movies.  
 - 🎨 Modern and clean UI with hover effects.  
 
