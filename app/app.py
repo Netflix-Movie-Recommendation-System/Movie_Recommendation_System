@@ -1,5 +1,6 @@
 import pickle
 import warnings
+import random
 import pandas as pd
 import streamlit as st
 from sklearn.metrics.pairwise import cosine_similarity
@@ -7,6 +8,11 @@ from scipy.sparse import hstack, csr_matrix
 
 warnings.filterwarnings("ignore")
 
+# pipreqs . --force --encoding=utf-8
+# # Try common encodings
+# pipreqs . --force --encoding=latin-1
+# pipreqs . --force --encoding=iso-8859-1
+# pipreqs . --force --encoding=cp1252
 # conda activate project
 # streamlit run app/app.py
 
@@ -36,7 +42,7 @@ def initialize_recommender():
         df, tfidf, scaler, genre_encoder, language_encoder, pca, k_model
     )
     recommender.preprocess()
-    return recommender, df
+    return recommender
 
 
 class KMEANS_RECOMMENDATION_SYSTEM:
@@ -135,14 +141,13 @@ class KMEANS_RECOMMENDATION_SYSTEM:
             [
                 "Title",
                 "Genre",
+                "Languages",
                 "Series or Movie",
                 "Director",
-                "Composite_Score",
                 "Actors",
+                "View Rating",
                 "Summary",
-                "Similarity",
                 "IMDb Score",
-                "cluster",
             ]
         ].head(num_recommendations)
 
@@ -165,19 +170,19 @@ class KMEANS_RECOMMENDATION_SYSTEM:
             [
                 "Title",
                 "Genre",
+                "Languages",
                 "Director",
                 "Actors",
+                "View Rating",
                 "Series or Movie",
-                "Composite_Score",
                 "IMDb Score",
                 "Summary",
             ]
         ]
 
-        return pd.DataFrame(popular_movies)
+        return popular_movies
 
-        # Searches for movies by looking for a query string in specified columns
-
+    # Searches for movies by looking for a query string in specified columns
     def search_movies(self, query, search_in=None):
         """
         Search for movies based on different criteria
@@ -205,8 +210,10 @@ class KMEANS_RECOMMENDATION_SYSTEM:
             [
                 "Title",
                 "Genre",
+                "Languages",
                 "Director",
                 "Actors",
+                "View Rating",
                 "IMDb Score",
                 "Series or Movie",
                 "Summary",
@@ -221,6 +228,17 @@ class KMEANS_RECOMMENDATION_SYSTEM:
         for genre_list in self.df["Genre_List"]:
             all_genres.extend(genre_list)
         return sorted(list(set(all_genres)))  # Creates a set to remove duplicate genres
+
+    def get_unique_languages(self):
+        """Get list of unique genres for dropdown"""
+        all_languages = []
+        # add all elements from the current genre_list to the all_genres list
+        # [extend() is used instead of append() because we want to add multiple items from a list, not add the list itself]
+        for language_list in self.df["Language_List"]:
+            all_languages.extend(language_list)
+        return sorted(
+            list(set(all_languages))
+        )  # Creates a set to remove duplicate genres
 
 
 # Cache expensive operations
@@ -244,17 +262,23 @@ def get_unique_genres_cached(_recommender):
     return _recommender.get_unique_genres()
 
 
+@st.cache_data
+def get_unique_languages_cached(_recommender):
+    return _recommender.get_unique_languages()
+
+
 # Streamlit UI
 st.set_page_config(
     page_title="Movie Recommendation System", page_icon="🎬", layout="wide"
 )
 
-st.title("🎬 Movie Recommendation System")
-st.markdown("Discover movies similar to your favorites or find popular titles by genre")
+st.title("🍿 Netflix Movie Recommendation System")
+# st.markdown("Discover movies similar to your favorites or find popular titles by genre")
 
 # Initialize with a spinner
 with st.spinner("Loading recommendation system..."):
-    recommender, df = initialize_recommender()
+    recommender = initialize_recommender()
+
 
 # Sidebar for navigation
 st.sidebar.title("Navigation")
@@ -262,16 +286,27 @@ option = st.sidebar.radio(
     "Choose an option:", ["Similar Movies", "Popular Movies", "Search Movies"]
 )
 
+
 # Similar Movies Section
 if option == "Similar Movies":
     st.header("Find Similar Movies")
 
     movie_titles = sorted(recommender.df["Title"].unique())
-    selected_movie = st.selectbox("Select a movie:", movie_titles)
+    selected_movie = st.selectbox("**🎥 Select a movie:**", movie_titles)
 
-    num_recommendations = st.slider("Number of recommendations:", 5, 20, 12)
+    genre_list = get_unique_genres_cached(recommender)
+    rating_list = recommender.df["View Rating"].unique().tolist()
+    language_list = get_unique_languages_cached(recommender)
 
-    if st.button("Find Similar Movies"):
+    selected_genres = st.multiselect("**🎭 Genres (optional)**:", genre_list)
+    selected_ratings = st.multiselect("**⭐ Ratings (optional)**:", rating_list)
+    selected_languages = st.multiselect("**🗣️ Languages (optional):**", language_list)
+
+    all_selected = [selected_genres, selected_ratings, selected_languages]
+
+    num_recommendations = st.slider("📊 Number of recommendations:", 5, 20, 12)
+
+    if st.button("🔍 Recommend"):
         with st.spinner("Finding similar movies..."):
             # Show details of the selected movie first
             selected_movie_row = recommender.df[
@@ -284,8 +319,10 @@ if option == "Similar Movies":
                 unsafe_allow_html=True,
             )
             st.write(f"**🎬 Genre:** {selected_movie_row['Genre']}")
+            st.write(f"**🗣️ Language:** {selected_movie_row['Languages']}")
             st.write(f"**🎥 Director:** {selected_movie_row['Director']}")
             st.write(f"**⭐ Actors:** {selected_movie_row['Actors']}")
+            st.write(f"**⭐ Rating:** {selected_movie_row['View Rating']}")
             st.write(f"**📺 Type:** {selected_movie_row['Series or Movie']}")
             st.write(f"**🍿 IMDb Score:** {selected_movie_row['IMDb Score']}")
             with st.expander("📝 Summary"):
@@ -295,8 +332,35 @@ if option == "Similar Movies":
                 recommender, selected_movie, num_recommendations
             )
 
+            if selected_genres:
+                recommendations = recommendations[
+                    recommendations["Genre"].apply(
+                        lambda x: any(
+                            genre.strip() in [g.strip() for g in str(x).split(",")]
+                            for genre in selected_genres
+                        )
+                    )
+                ]
+
+            if selected_ratings:
+                recommendations = recommendations[
+                    recommendations["View Rating"].apply(
+                        lambda x: any(r in str(x).split(",") for r in selected_ratings)
+                    )
+                ]
+
+            if selected_languages:
+                recommendations = recommendations[
+                    recommendations["Languages"].apply(
+                        lambda x: any(
+                            lang.strip() in [l.strip() for l in str(x).split(",")]
+                            for lang in selected_languages
+                        )
+                    )
+                ]
+
         if recommendations is not None and not recommendations.empty:
-            st.success(f"Movies similar to '{selected_movie}':")
+            st.success(f"Recommendations (similar to {selected_movie}):")
 
             # Display as cards in columns
             cols = st.columns(2)
@@ -309,16 +373,33 @@ if option == "Similar Movies":
                             unsafe_allow_html=True,
                         )
                         st.write(f"🎬 **Genre:** {row['Genre']}")
+                        # language = row.get("Languages", "Unknown")
+                        st.write(f"**🗣️ Language:** {row['Languages']}")
                         st.write(f"🎥 **Director:** {row['Director']}")
                         st.write(f"⭐ **Actors:** {row['Actors']}")
+                        st.write(f"**⭐ Rating:** {row['View Rating']}")
                         st.write(f"📺 **Type:** {row['Series or Movie']}")
-                        # st.write(f"**Score:** {row['Composite_Score']:.1f}")
                         st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
                         with st.expander("📝 Summary"):
                             st.write(row["Summary"])
                         st.markdown("---")
         else:
             st.warning("No similar movies found or movie not in database.")
+
+    # --------------------
+    # Surprise Me Feature
+    # --------------------
+    if st.button("🎲 Surprise Me"):
+        random_movie = random.choice(recommender.df["Title"].dropna().unique())
+        st.info(f"Your random pick: **{random_movie}**")
+
+    # --------------------
+    # Trending Section
+    # --------------------
+    st.subheader("🔥 Trending Now")
+    trending = recommender.df["Title"].value_counts().head(5).index.tolist()
+    for trend in trending:
+        st.write(f"🎬 {trend}")
 
 # Popular Movies Section
 elif option == "Popular Movies":
@@ -357,10 +438,12 @@ elif option == "Popular Movies":
                             unsafe_allow_html=True,
                         )
                         st.write(f"**🎬 Genre:** {row['Genre']}")
+                        # language = row.get("Languages", "Unknown")
+                        st.write(f"**🗣️ Language:** {row['Languages']}")
                         st.write(f"**🎥 Director:** {row['Director']}")
                         st.write(f"**⭐ Actors:** {row['Actors']}")
+                        st.write(f"**⭐ Rating:** {row['View Rating']}")
                         st.write(f"**📺 Type:** {row['Series or Movie']}")
-                        # st.write(f"**Score:** {row['Composite_Score']:.1f}")
                         st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
                         with st.expander("📝 Summary"):
                             st.write(row["Summary"])
@@ -372,7 +455,10 @@ elif option == "Popular Movies":
 elif option == "Search Movies":
     st.header("Search Movies")
 
-    search_query = st.text_input("Enter search term:")
+    search_query = st.text_input(
+        "Enter search term:",
+        help="Enter a query to search for(ie. Director or Actor name)",
+    )
     search_columns = st.multiselect(
         "Search in:",
         ["Title", "Genre", "Director", "Actors"],
@@ -399,8 +485,11 @@ elif option == "Search Movies":
                             unsafe_allow_html=True,
                         )
                         st.write(f"🎬 **Genre:** {row['Genre']}")
+                        # language = row.get("Languages", "Unknown")
+                        st.write(f"**🗣️ Language:** {row['Languages']}")
                         st.write(f"🎥 **Director:** {row['Director']}")
                         st.write(f"⭐ **Actors:** {row['Actors']}")
+                        st.write(f"**⭐ Rating:** {row['View Rating']}")
                         st.write(f"📺 **Type:** {row['Series or Movie']}")
                         st.write(f"🍿 **IMDb Score:** {row['IMDb Score']}")
                         with st.expander("📝 Summary"):
@@ -411,7 +500,3 @@ elif option == "Search Movies":
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.info(
-    "This recommendation system uses content-based filtering and K-means clustering "
-    "to suggest movies based on their features and similarities."
-)
